@@ -6,7 +6,7 @@ from typing import List
 import uvicorn
 import socket
 
-app = FastAPI(title="极简微信聊天")
+app = FastAPI(title="约.约")
 templates = Jinja2Templates(directory="templates")
 
 class ConnectionManager:
