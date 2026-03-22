@@ -276,12 +276,16 @@
             let reconnectAttempts = 0;
             const maxReconnectAttempts = 10;
             let isManualClose = false;
+            
+            // 消息ID计数器，用于去重
+            let messageIdCounter = 0;
+            const sentMessageIds = new Set(); // 存储已发送的消息ID
+            const receivedMessageIds = new Set(); // 存储已接收的消息ID
 
             // 生成或获取设备ID
             function getDeviceId() {
                 let id = localStorage.getItem('device_id');
                 if (!id) {
-                    // 生成随机设备ID
                     id = 'device_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
                     localStorage.setItem('device_id', id);
                 }
@@ -304,8 +308,19 @@
                 return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
             }
 
+            // 生成唯一消息ID
+            function generateMessageId() {
+                return `${Date.now()}_${messageIdCounter++}_${Math.random().toString(36).substr(2, 6)}`;
+            }
+
             // 添加自己的消息
-            function appendMyMessage(content, timeStr = null) {
+            function appendMyMessage(content, timeStr = null, messageId = null) {
+                // 检查是否已经显示过这条消息
+                if (messageId && receivedMessageIds.has(messageId)) {
+                    console.log('消息已显示，跳过:', messageId);
+                    return;
+                }
+                
                 const row = document.createElement('div');
                 row.className = 'message-row right';
                 
@@ -325,12 +340,22 @@
                 row.appendChild(wrapper);
                 chatMain.appendChild(row);
                 
+                if (messageId) {
+                    receivedMessageIds.add(messageId);
+                }
+                
                 // 滚动到底部
                 chatMain.scrollTop = chatMain.scrollHeight;
             }
 
-            // 添加对方的消息（不显示名字）
-            function appendOtherMessage(content, timeStr) {
+            // 添加对方的消息
+            function appendOtherMessage(content, timeStr, messageId = null) {
+                // 检查是否已经显示过这条消息
+                if (messageId && receivedMessageIds.has(messageId)) {
+                    console.log('消息已显示，跳过:', messageId);
+                    return;
+                }
+                
                 const row = document.createElement('div');
                 row.className = 'message-row left';
                 
@@ -350,6 +375,10 @@
                 row.appendChild(wrapper);
                 chatMain.appendChild(row);
                 
+                if (messageId) {
+                    receivedMessageIds.add(messageId);
+                }
+                
                 chatMain.scrollTop = chatMain.scrollHeight;
             }
 
@@ -362,7 +391,7 @@
                 chatMain.scrollTop = chatMain.scrollHeight;
             }
 
-            // 添加错误消息（显示设备ID）
+            // 添加错误消息
             function appendErrorMessage(text, deviceIdInfo = null) {
                 const msg = document.createElement('div');
                 msg.className = 'error-message';
@@ -379,7 +408,6 @@
             function updateStatus(text, isConnected = false) {
                 statusSpan.textContent = text;
                 
-                // 根据连接状态启用/禁用输入
                 messageInput.disabled = !isConnected;
                 sendBtn.disabled = !isConnected;
                 
@@ -394,13 +422,11 @@
             function connectWebSocket() {
                 if (isManualClose) return;
                 
-                // 清除重连定时器
                 if (reconnectTimer) {
                     clearTimeout(reconnectTimer);
                     reconnectTimer = null;
                 }
                 
-                // 关闭现有连接
                 if (socket) {
                     try {
                         socket.onopen = null;
@@ -416,7 +442,6 @@
                     socket = null;
                 }
 
-                // 获取正确的WebSocket URL
                 const host = window.location.host;
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const wsUrl = `${protocol}//${host}/ws`;
@@ -433,11 +458,9 @@
                     return;
                 }
 
-                // 连接打开
                 socket.onopen = function() {
                     console.log('WebSocket连接成功');
                     
-                    // 发送设备信息
                     const deviceInfo = {
                         device_id: deviceId,
                         nickname: nickname
@@ -448,7 +471,6 @@
                     reconnectAttempts = 0;
                 };
 
-                // 接收消息
                 socket.onmessage = function(event) {
                     try {
                         const data = JSON.parse(event.data);
@@ -459,21 +481,49 @@
                                 break;
                                 
                             case 'offline_messages':
-                                // 显示离线消息，无提示
+                                // 显示离线消息（这些是对方发来的）
                                 if (data.messages && data.messages.length > 0) {
                                     data.messages.forEach(msg => {
-                                        appendOtherMessage(msg.content, msg.time_str);
+                                        // 使用服务器生成的消息ID进行去重
+                                        appendOtherMessage(msg.content, msg.time_str, msg.message_id);
                                     });
                                 }
                                 break;
                                 
                             case 'message':
-                                // 对方发来的消息
-                                appendOtherMessage(data.content, data.time_str);
+                                // 对方发来的消息 - 使用消息ID去重
+                                if (data.message_id && !receivedMessageIds.has(data.message_id)) {
+                                    // 检查是否是自己的消息（通过发送者设备ID判断）
+                                    if (data.from_device !== deviceId) {
+                                        appendOtherMessage(data.content, data.time_str, data.message_id);
+                                    } else {
+                                        // 这是自己的消息，但可能是重复的，标记为已接收
+                                        receivedMessageIds.add(data.message_id);
+                                    }
+                                } else if (!data.message_id) {
+                                    // 兼容旧版消息（无消息ID）
+                                    appendOtherMessage(data.content, data.time_str);
+                                }
+                                break;
+                                
+                            case 'message_ack':
+                                // 消息确认，标记为已处理
+                                if (data.message_id) {
+                                    sentMessageIds.add(data.message_id);
+                                }
+                                break;
+                                
+                            case 'pending_messages':
+                                // 收到待发送的消息列表（对方离线期间发送的消息）
+                                if (data.messages && data.messages.length > 0) {
+                                    console.log(`收到 ${data.messages.length} 条待发送消息`);
+                                    data.messages.forEach(msg => {
+                                        appendOtherMessage(msg.content, msg.time_str, msg.message_id);
+                                    });
+                                }
                                 break;
                                 
                             case 'unauthorized':
-                                // 未授权设备，显示设备ID
                                 isManualClose = true;
                                 updateStatus('❌ 未授权', false);
                                 appendErrorMessage(data.message, data.device_id);
@@ -488,13 +538,15 @@
                                     if (socket) socket.close();
                                 }
                                 break;
+                                
+                            default:
+                                console.log('未知消息类型:', data.type);
                         }
                     } catch (e) {
                         console.error('解析消息失败:', e);
                     }
                 };
 
-                // 连接关闭
                 socket.onclose = function(event) {
                     console.log('WebSocket连接关闭', event.code, event.reason);
                     
@@ -509,7 +561,6 @@
                     }
                 };
 
-                // 连接错误
                 socket.onerror = function(error) {
                     console.error('WebSocket错误:', error);
                 };
@@ -552,13 +603,19 @@
                 }
                 
                 try {
-                    // 立即显示自己的消息
-                    appendMyMessage(text, getCurrentTime());
+                    // 生成唯一消息ID
+                    const messageId = generateMessageId();
+                    const currentTime = getCurrentTime();
                     
-                    // 发送到服务器
+                    // 立即显示自己的消息（前端立即显示）
+                    appendMyMessage(text, currentTime, messageId);
+                    
+                    // 发送到服务器，带上消息ID
                     socket.send(JSON.stringify({
                         type: 'message',
-                        content: text
+                        content: text,
+                        message_id: messageId,
+                        timestamp: new Date().toISOString()
                     }));
                     
                     messageInput.value = '';
@@ -576,7 +633,6 @@
                 console.log('设备ID:', deviceId);
                 console.log('昵称:', nickname);
                 
-                // 事件监听
                 sendBtn.addEventListener('click', sendMessage);
                 
                 messageInput.addEventListener('keypress', function(e) {
@@ -586,14 +642,12 @@
                     }
                 });
 
-                // 键盘弹出时滚动到底部
                 messageInput.addEventListener('focus', function() {
                     setTimeout(() => {
                         chatMain.scrollTop = chatMain.scrollHeight;
                     }, 300);
                 });
 
-                // 窗口大小改变时
                 let resizeTimer;
                 window.addEventListener('resize', function() {
                     clearTimeout(resizeTimer);
@@ -604,11 +658,9 @@
                     }, 100);
                 });
 
-                // 启动连接
                 connectWebSocket();
             }
 
-            // 页面关闭时标记手动关闭
             window.addEventListener('beforeunload', function() {
                 isManualClose = true;
                 if (socket) {
@@ -616,7 +668,6 @@
                 }
             });
 
-            // 启动
             init();
         })(); 
     </script>
