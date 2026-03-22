@@ -10,7 +10,7 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 
-app = FastAPI(title="约·约")
+app = FastAPI(title="简·简")
 templates = Jinja2Templates(directory="templates")
 
 # 配置文件
@@ -336,7 +336,7 @@ if __name__ == "__main__":
     local_ip = get_local_ip()
     
     print("=" * 50)
-    print("🚀 启动约·约聊天服务器")
+    print("🚀 启动简·简聊天服务器")
     print("=" * 50)
     print("\n📡 服务器地址:")
     print(f"   - 本地访问: http://127.0.0.1:8000")
