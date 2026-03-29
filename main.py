@@ -448,8 +448,8 @@ if __name__ == "__main__":
     print("🚀 启动简·简聊天服务器")
     print("=" * 50)
     print("\n📡 服务器地址:")
-    print(f"   - 本地访问: http://127.0.0.1:8000")
-    print(f"   - 局域网访问: http://{local_ip}:8000")
+    print(f"   - 本地访问: http://127.0.0.1:9000")
+    print(f"   - 局域网访问: http://{local_ip}:9000")
     print("\n✨ 功能特点:")
     print("   ✅ 两人专属聊天")
     print("   ✅ 离线消息按接收者存储")
@@ -480,4 +480,4 @@ if __name__ == "__main__":
     print("   6. 每条消息都有唯一ID，防止重复显示")
     print("=" * 50)
     
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=9000)
